@@ -1,0 +1,192 @@
+---
+title: "Course Project - Practical Machine Learning"
+author: "Marcos Garcia Garza"
+date: "27/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary 
+The current report presents the results for the Data Science Specialization, Practical Machine Learning Course Final Project on Coursera. An algorithm is developed in order to predict how well 6 participants performed an excercise. The method considers cross validation, specifies what the expected out of sample error is, and how the choices are taken. This prediction model efficacy is also used to predict 20 different test cases. 
+
+## Background 
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: 
+http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har 
+(see the section on the Weight Lifting Exercise Dataset).
+
+## About the Dataset 
+The Weight Lifting Excercise (WLE) Dataset is licensed under the Creative Commons License (CC BY-SA).
+Data Authors:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. 
+Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13). 
+Stuttgart, Germany: ACM SIGCHI, 2013.
+Read more: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises#ixzz6WEgp09FH
+
+## Data Processing 
+```{r wd, echo = FALSE}
+setwd("C:/Users/mgarcia/Desktop/datasciencecoursera/DS_Coursera_M8 Practical Machine Learning/Course Project/PracticalMachineLearning")
+```
+Remove Objects from workspace: 
+```{r remove, echo = TRUE}
+rm(list=ls())
+```
+Set libraries: 
+```{r libraries, echo = TRUE}
+library(dplyr)
+library(knitr)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(e1071)
+library(randomForest)
+library(corrplot)
+library(caret)
+library(RColorBrewer)
+library(gbm)
+```
+Set seed to ensure reproducibility of results: 
+```{r seed, echo=TRUE}
+set.seed(13378)
+```
+Loading data: 
+```{r dataload, echo=TRUE}
+TD <- read.csv("./pml-training.csv")
+dim(TD); names(TD)
+VD <- read.csv("./pml-testing.csv")
+dim(VD); names(TD)
+```
+Tidying the Dataset: 
+The dataset contains many NA or empty values. A tidy variable will be defined as that variable that contains less than 90% of NAs and/or empty values; also, the first variables are not useful to build the model, as they contain ID and timestamp information.
+Training Dataset: 
+```{r trainingtidy, echo=TRUE}
+EmptyVars <- which(colSums(is.na(TD) |TD == "")> 0.9*dim(TD)[1])
+TDC <- TD[, -EmptyVars]
+TDC <- TDC[,-c(1:7)]
+dim(TDC)
+```
+Test Dataset: 
+```{r testtidy, echo=TRUE}
+EmptyVars <- which(colSums(is.na(VD) |VD == "")> 0.9*dim(VD)[1])
+VDC <- VD[, -EmptyVars]
+VDC <- VDC[,-1]
+dim(VDC)
+```
+Low variation data exclusion verification 
+Variation verification is useful to determine which variables are useful for construction of the machine learning model. 
+By running the low variation test overfitting can be avoided. 
+```{r variation, echo=TRUE}
+NZV <- nearZeroVar(TDC)
+NZV
+```
+The variables in the tidy dataset TDC (Train Data Clean) report some variation. 
+Data Partitioning for Prediction 
+Split training data 70% train data and 30% test data. This will be used to test the model accuracy 
+```{r datasplit, echo=TRUE}
+set.seed(13378)
+inTrain <- createDataPartition(TDC$classe, p = 0.7, list = FALSE)
+TrainData <- TDC[inTrain, ]
+TestData <- TDC[-inTrain, ]
+dim(TrainData)
+```
+Validation data VDC remains the same, as it will be used later to test the predictive model for the 20 cases. 
+
+## Exploratory Data Analysis 
+The following code explores the correlations between all the variables:
+```{r corrs, echo=TRUE}
+CM <- cor(TrainData[, -53])
+corrplot(CM, order = "FPC", method = "color", type = "lower",
+         tl.cex = 0.8, tl.col = rgb(0,0,0), mar = c(1,1,1,1), title = "Training Dataset Clean Correlogram")
+```
+Correlations having darker blue or red mean a stronger relationship for both cases (whether the correlation is positive or negative).
+Next, the highly correlated variables will be counted: 
+```{r highcorr, echo=TRUE}
+HC <- abs(cor(TrainData[,-53])); diag(HC) <- 0 
+HC <- which(HC > 0.8, arr.ind = TRUE)
+HC <- dim(HC)[1]
+HC
+```
+This means that there are 38 variabes with high correlation. A simpler model could be constructed by combining some of the variables via a principal components analysis, so the model noice can be reduced. This will be left out of the scope of the current project. 
+
+## Building the Predictive Model 
+The TrainData dataset will be considered using three methods to predict the outcome. The selected methods are: 
+1) Decision Trees
+2) Random Forests  
+3) Generalized Boosted Model 
+The outcome will be compared with the TestData dataset to compare accuracy. The best resulting model will be used to predict the 20 different tests cases for the final Quiz on the Practical Machine Learning Course. 
+
+Cross-Validation 
+Cross-validation will be used for each model with K = 3: 
+```{r fitctrl, echo=TRUE}
+fitControl <- trainControl(method= "cv", number = 3)
+```
+
+## Decision Trees Model 
+```{r dtm, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+DTM <- train(classe~., data = TrainData, method = "rpart", trControl = fitControl)
+fancyRpartPlot(DTM$finalModel)
+```
+Now the model is validated with the TestData to find out the efficacy, considering the accuracy variable:
+```{r dtmv, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+DTM_P <- predict(DTM, newdata = TestData)
+DTM_CM <- confusionMatrix(TestData$classe, DTM_P); DTM_CM
+```
+Determine Model Accuracy: 
+```{r dtma, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+DTM_CM$overall[1]
+```
+The accuracy of the Decision Trees Model is about 0.491. Out-of-sample-error is about 0.5, which is high. This can be interpreted as the outcome class not being predicted with accuracy using other predictors. 
+
+## Random Forests Model 
+```{r rfm, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+RFM <- train(classe~., data = TrainData, method = "rf", trControl = fitControl, verbose = FALSE)
+plot(RFM, main = "Random Forests Accuracy by number of Predictors")
+```
+It is visible that the model reaches the highest accuracy with 2 predictors. Adding more variables to the model will decrease its accuracy. Having good accuracy with less variables suggests that there are dependencies between the variables. 
+Validating the model on the TestData: 
+```{r rfmv, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+RFMP <- predict(RFM, newdata = TestData)
+RFCM <- confusionMatrix(TestData$classe, RFMP); RFCM
+```
+Determine Model Accuracy: 
+```{rfma, echo=TRUE}
+RFCM$overall[1]
+```
+Model accuracy is 0.999; out-of-sample error is 0.001, which is great!
+```{r rfmg, echo = TRUE}
+plot(RFM$finalModel, main = "Model Error of Random Forest Model by Number of Trees")
+```
+Increasing the number of trees over 30 will not reduce the error significantly. 
+
+## Generalized Boosted Model 
+```{r gbm, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+GBM <- train(classe~., data = TrainData, method = "gbm", trControl = fitControl, verbose = FALSE)
+plot(GBM)
+```
+Validating the model on the TestData:
+```{r gbmv, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+GBMP <- predict(GBM, newdata = TestData)
+GBMCM <- confusionMatrix(TestData$classe, GBMP); GBMCM
+```
+Determine Model Accuracy: 
+```{r gbma, echo=TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+GBMCM$overall[1]
+```
+Accuracy of the model is 0.964, out-of-sample-error is 0.036. 
+
+## Decision on the Model to be applied 
+```{r modelfinal, echo=TRUE}
+Prediction_Test <- predict(RFM, newdata = VDC)
+Prediction_Test
+```
+
